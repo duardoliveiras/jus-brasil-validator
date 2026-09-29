@@ -18,6 +18,9 @@ def test_resolucao():
     ]
     for trecho, tipo, esperado in casos:
         assert resolver.resolver(trecho, tipo)["id_canonico"] == esperado
+    fora_da_cobertura = resolver.resolver("art 172 da Lei nº 9.504/1997", "lei")
+    assert fora_da_cobertura["id_canonico"] is None and fora_da_cobertura["completo"]
+    assert not resolver.resolver("Rcl de 2024, Rel. Min. Flávio Dino", "jurisprudencia")["completo"]
 
 
 if __name__ == "__main__":

@@ -61,7 +61,8 @@ def fonte_lei(texto):
     lei = re.search(r"(?:LEI(?: COMPLEMENTAR)?|DECRETO-LEI)\s+N[º°.]?\s*([\d.]+)",
                     texto)
     if lei:
-        return LEIS.get("".join(c for c in lei.group(1) if c.isdigit()))
+        numero_lei = "".join(c for c in lei.group(1) if c.isdigit())
+        return LEIS.get(numero_lei, f"LEI{numero_lei}")
     return None
 
 
@@ -129,6 +130,7 @@ class Resolvedor:
             fonte = fonte_lei(trecho)
             chave = (int(artigo.group(1).replace(".", "")), fonte) if artigo else None
             ids = self.dispositivos.get(chave, []) if chave else []
+            completo = bool(artigo and fonte)
         elif SUMULA.search(trecho):
             match = SUMULA.search(trecho)
             tribunal = re.search(r"\b(?:STF|STJ|TST|TSE|STM)\b", trecho, re.IGNORECASE)
@@ -136,10 +138,12 @@ class Resolvedor:
                    if (not tribunal or tr == tribunal.group().upper())
                    and (not match.group(1) or vinculante)]
             chave = f"súmula {match.group(2)}"
+            completo = bool(tribunal or match.group(1))
         elif re.search(r"relatoria|relator|Rel\.\s*Min\.", trecho, re.IGNORECASE):
-            chave, ids = None, []
+            chave, ids, completo = None, [], False
         else:
             chave = numero(trecho)
+            completo = bool(chave)
             candidatos = self.acordaos.get(chave, []) if chave else []
             if len(candidatos) > 1:
                 citacao = sem_acentos(trecho)
@@ -150,4 +154,4 @@ class Resolvedor:
             ids = [id for id, _, _ in candidatos]
         ids = sorted(set(ids))
         return {"id_canonico": ids[0] if len(ids) == 1 else None,
-                "candidatos": ids, "chave": chave}
+                "candidatos": ids, "chave": chave, "completo": completo}

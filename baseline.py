@@ -1,9 +1,11 @@
-"""Extrai candidatos a citação e mede seus spans."""
+"""Extrai, resolve e avalia citações do desafio."""
 
 import argparse
 import csv
 import json
 import re
+import subprocess
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -175,7 +177,134 @@ def main():
     cmd.add_argument("--split", choices=("desenvolvimento", "validacao", "todos"),
                      default="desenvolvimento")
     cmd.add_argument("--report", type=Path)
+    cmd = sub.add_parser("predict", help="gera JSONs e submission.csv")
+    cmd.add_argument("--input", type=Path, default=ROOT / "files/txt")
+    cmd.add_argument("--banco", type=Path, default=ROOT / "files/desafio1_bracis.db")
+    cmd.add_argument("--output", type=Path, default=ROOT / "runs/predicoes")
+    cmd.add_argument("--submission", type=Path, default=ROOT / "runs/submission.csv")
+    cmd = sub.add_parser("score", help="calcula a métrica oficial no gabarito local")
+    cmd.add_argument("--gold", type=Path, default=ROOT / "files/goldenset_offsets.csv")
+    cmd.add_argument("--submission", type=Path, default=ROOT / "runs/submission.csv")
+    cmd.add_argument("--split", choices=("desenvolvimento", "validacao", "todos"),
+                     default="desenvolvimento")
+    cmd.add_argument("--report", type=Path)
     args = parser.parse_args()
+
+    if args.comando == "predict":
+        from resolver import Resolvedor
+
+        arquivos = sorted(args.input.glob("*.txt"))
+        if not arquivos:
+            parser.error(f"nenhum .txt encontrado em {args.input}")
+        args.output.mkdir(parents=True, exist_ok=True)
+        existentes = {p.stem for p in args.output.glob("*.json")}
+        extras = existentes - {p.stem for p in arquivos}
+        if extras:
+            parser.error(f"JSONs antigos em {args.output}: {sorted(extras)}")
+        resolvedor = Resolvedor(args.banco)
+        total = 0
+        for arquivo in arquivos:
+            with arquivo.open(encoding="utf-8", newline="") as f:
+                texto = f.read()
+            citacoes = []
+            for c in extrair(texto, arquivo.stem):
+                resultado = resolvedor.resolver(c["trecho"], c["tipo"])
+                id_canonico = resultado["id_canonico"]
+                if id_canonico is not None:
+                    classe = "real"
+                elif not resultado["completo"] or len(resultado["candidatos"]) > 1:
+                    classe = "incompleta"
+                else:
+                    classe = "inventada"
+                citacoes.append({k: c[k] for k in ("inicio", "fim", "trecho", "tipo")} |
+                                {"classificacao": classe,
+                                 "resolucao": {"id_canonico": id_canonico}
+                                 if id_canonico is not None else None})
+            (args.output / f"{arquivo.stem}.json").write_text(
+                json.dumps({"documento_id": arquivo.stem, "citacoes": citacoes},
+                           ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            total += len(citacoes)
+        args.submission.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run([sys.executable, str(ROOT / "files/json_to_submission.py"),
+                        str(args.output), str(args.submission)], check=True)
+        print(f"{total} citações em {len(arquivos)} documentos.")
+        return
+
+    if args.comando == "score":
+        try:
+            import pandas as pd
+            from files import kaggle_metric as metric
+        except ImportError as exc:
+            parser.error(f"métrica requer pandas; use .venv/bin/python ({exc})")
+        validacao = set(json.loads((ROOT / "splits.json").read_text(encoding="utf-8"))["validacao"])
+        por_doc = defaultdict(list)
+        niveis = {}
+        with args.gold.open(encoding="utf-8-sig", newline="") as f:
+            for linha in csv.DictReader(f):
+                doc = linha["documento_id"]
+                if args.split == "validacao" and doc not in validacao:
+                    continue
+                if args.split == "desenvolvimento" and doc in validacao:
+                    continue
+                niveis[doc] = int(linha["nivel"])
+                por_doc[doc].append(",".join(
+                    (linha["inicio"], linha["fim"], linha["classificacao"],
+                     linha["id_canonico"] or "-")))
+        solucao = pd.DataFrame(
+            [{"documento_id": doc, "nivel": niveis[doc],
+              "citacoes": "|".join(por_doc[doc])} for doc in sorted(por_doc)])
+        submissao = pd.read_csv(args.submission, keep_default_na=False)
+        oficial = metric.avaliar(solucao, submissao)
+        sub_por_doc = submissao.set_index("documento_id")["citacoes"]
+        matriz, erros = {}, []
+        for doc, golds_txt in por_doc.items():
+            nivel = str(niveis[doc])
+            if nivel not in matriz:
+                matriz[nivel] = {
+                    "classes": {c: {p: 0 for p in (*metric.CLASSES, "ausente")}
+                                for c in metric.CLASSES},
+                    "link_errado": 0,
+                    "espurias": {c: 0 for c in metric.CLASSES},
+                }
+            golds = metric._parse_solution_cell("|".join(golds_txt), doc)
+            preds = metric._parse_submission_cell(sub_por_doc[doc], doc)
+            pares, sem_gold, sem_pred = metric._casar(golds, preds)
+            for gi, pi in pares:
+                g, p = golds[gi], preds[pi]
+                matriz[nivel]["classes"][g["classe"]][p["classe"]] += 1
+                link_errado = (g["classe"] == p["classe"] == "real"
+                               and p["id_canonico"] not in g["doc_ids"])
+                if link_errado:
+                    matriz[nivel]["link_errado"] += 1
+                if g["classe"] != p["classe"] or link_errado:
+                    erros.append(dict(documento_id=doc, erro="classe ou link",
+                                      esperado=g["classe"], previsto=p["classe"],
+                                      inicio=g["inicio"], fim=g["fim"],
+                                      id_previsto=p["id_canonico"]))
+            for gi in sem_gold:
+                g = golds[gi]
+                matriz[nivel]["classes"][g["classe"]]["ausente"] += 1
+                erros.append(dict(documento_id=doc, erro="não extraída",
+                                  esperado=g["classe"], inicio=g["inicio"], fim=g["fim"]))
+            casadas = [golds[gi] for gi, _ in pares]
+            for pi in sem_pred:
+                p = preds[pi]
+                if any(metric._contida(p, g) for g in casadas):
+                    continue
+                matriz[nivel]["espurias"][p["classe"]] += 1
+                erros.append(dict(documento_id=doc, erro="espúria",
+                                  previsto=p["classe"], inicio=p["inicio"], fim=p["fim"]))
+        relatorio = dict(split=args.split, oficial=oficial, matriz=matriz, erros=erros)
+        destino = args.report or ROOT / f"runs/score_report_{args.split}.json"
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_text(json.dumps(relatorio, ensure_ascii=False, indent=2) + "\n",
+                           encoding="utf-8")
+        print(f"Score oficial ({args.split}): {oficial['score_final']:.4f}")
+        for nivel, dados in oficial["niveis"].items():
+            print(f"Nível {nivel}: {dados['score']:.4f} "
+                  f"(macro-F1={dados['macro_f1']:.4f}, tau={dados['tau']:.4f})")
+        print(f"Matriz e erros: {destino}")
+        return
 
     if args.comando == "resolve":
         from resolver import Resolvedor
