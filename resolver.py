@@ -35,7 +35,7 @@ def numero(texto):
     if not match:
         return None
     bruto = re.sub(r"(?:\s*[-–/]\s*|\s+)[OolISsgG]$", "", match.group())
-    return "".join(c for c in bruto.translate(OCR) if c.isdigit())
+    return "".join(c for c in bruto.translate(OCR) if c.isdigit()).lstrip("0") or "0"
 
 
 def sem_acentos(texto):
@@ -45,6 +45,10 @@ def sem_acentos(texto):
 
 def fonte_lei(texto):
     texto = " ".join(sem_acentos(texto).split())
+    if re.search(r"\bCF\s*/\s*88\b", texto):
+        return "CF"
+    if "LEI DAS ELEICOES" in texto:
+        return "LEI9504"
     for palavra, fonte in (
         ("CONSTITUICAO", "CF"), ("CONSOLIDACAO DAS LEIS", "CLT"),
         ("CODIGO DE DEFESA DO CONSUMIDOR", "CDC"),
@@ -58,7 +62,7 @@ def fonte_lei(texto):
     for sigla in ("CPC", "CLT", "CPP", "CPM", "CDC"):
         if re.search(rf"\b{sigla}\b", texto):
             return sigla
-    lei = re.search(r"(?:LEI(?: COMPLEMENTAR)?|DECRETO-LEI)\s+N[º°.]?\s*([\d.]+)",
+    lei = re.search(r"(?:LEI(?: COMPLEMENTAR)?|DECRETO-LEI)\s+(?:N[º°.]?\s*)?([\d.]+)",
                     texto)
     if lei:
         numero_lei = "".join(c for c in lei.group(1) if c.isdigit())
@@ -134,11 +138,18 @@ class Resolvedor:
         elif SUMULA.search(trecho):
             match = SUMULA.search(trecho)
             tribunal = re.search(r"\b(?:STF|STJ|TST|TSE|STM)\b", trecho, re.IGNORECASE)
+            tribunal = tribunal.group().upper() if tribunal else next(
+                (sigla for nome, sigla in (("SUPERIOR TRIBUNAL DE JUSTICA", "STJ"),
+                                           ("SUPERIOR TRIBUNAL MILITAR", "STM"),
+                                           ("SUPERIOR TRIBUNAL ELEITORAL", "TSE"),
+                                           ("SUPERIOR TRIBUNAL DO TRABALHO", "TST"),
+                                           ("SUPREMO TRIBUNAL FEDERAL", "STF"))
+                 if nome in sem_acentos(trecho)), None)
             ids = [id for id, tr, vinculante in self.sumulas[match.group(2)]
-                   if (not tribunal or tr == tribunal.group().upper())
+                   if (not tribunal or tr == tribunal)
                    and (not match.group(1) or vinculante)]
             chave = f"súmula {match.group(2)}"
-            completo = bool(tribunal or match.group(1))
+            completo = bool(tribunal or match.group(1) or not ids)
         elif re.search(r"relatoria|relator|Rel\.\s*Min\.", trecho, re.IGNORECASE):
             chave, ids, completo = None, [], False
         else:

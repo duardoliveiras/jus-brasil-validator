@@ -42,7 +42,34 @@ def test_variantes_perdidas_no_score():
     ]
 
 
+def test_casos_extras_e_cabecalho():
+    texto = (
+        "PRECEDENTES INVOCADOS\n\n\n"
+        "Apelação Criminal nº 7000075-58.2022.7.00.0000/PR. "
+        "artigo 93, inciso IX, da CF/88. "
+        "artigo 43 da Lei 8.112. "
+        "precedente STJ sobre responsabilidade civil, sem número completo. "
+        "DECISÃO MONOCRÁTICA"
+    )
+    estritas = extrair(texto, "exemplo")
+    assert [c["trecho"] for c in estritas] == [
+        "Apelação Criminal nº 7000075-58.2022.7.00.0000/PR",
+        "artigo 93, inciso IX, da CF/88",
+        "artigo 43 da Lei 8.112",
+    ]
+    amplas = extrair(texto, "exemplo", vagas=True)
+    assert [c["trecho"] for c in amplas] == [
+        *(c["trecho"] for c in estritas),
+        "precedente STJ sobre responsabilidade civil, sem número completo",
+    ]
+    assert amplas[-1]["vago"]
+    legal = extrair("Cabeçalho\n\n\ndispositivo legal sobre acesso à informação, "
+                    "sem artigo nem número de lei", "exemplo", vagas=True)
+    assert len(legal) == 1 and legal[0]["vago"] and legal[0]["tipo"] == "lei"
+
+
 if __name__ == "__main__":
     test_extracao()
     test_casamento()
     test_variantes_perdidas_no_score()
+    test_casos_extras_e_cabecalho()
