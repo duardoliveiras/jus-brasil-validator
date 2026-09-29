@@ -169,7 +169,64 @@ def main():
     cmd.add_argument("--split", choices=("desenvolvimento", "validacao", "todos"),
                      default="desenvolvimento")
     cmd.add_argument("--report", type=Path)
+    cmd = sub.add_parser("resolve", help="mede a resolução usando os spans do gabarito")
+    cmd.add_argument("--gold", type=Path, default=ROOT / "files/goldenset_offsets.csv")
+    cmd.add_argument("--banco", type=Path, default=ROOT / "files/desafio1_bracis.db")
+    cmd.add_argument("--split", choices=("desenvolvimento", "validacao", "todos"),
+                     default="desenvolvimento")
+    cmd.add_argument("--report", type=Path)
     args = parser.parse_args()
+
+    if args.comando == "resolve":
+        from resolver import Resolvedor
+
+        resolvedor = Resolvedor(args.banco)
+        validacao = set(json.loads((ROOT / "splits.json").read_text(encoding="utf-8"))["validacao"])
+        with args.gold.open(encoding="utf-8-sig", newline="") as f:
+            linhas = list(csv.DictReader(f))
+        resumo = defaultdict(lambda: dict(reais=0, corretos=0, sem_id=0,
+                                          id_errado=0, nao_reais_com_id=0))
+        erros = []
+        for linha in linhas:
+            doc = linha["documento_id"]
+            if args.split == "validacao" and doc not in validacao:
+                continue
+            if args.split == "desenvolvimento" and doc in validacao:
+                continue
+            resultado = resolvedor.resolver(linha["trecho"].replace("\\n", "\n"),
+                                           linha["tipo"])
+            contagem = resumo[linha["nivel"]]
+            esperado = linha["id_canonico"] or None
+            obtido = resultado["id_canonico"]
+            if linha["classificacao"] == "real":
+                contagem["reais"] += 1
+                if str(obtido) == esperado:
+                    contagem["corretos"] += 1
+                elif obtido is None:
+                    contagem["sem_id"] += 1
+                else:
+                    contagem["id_errado"] += 1
+            elif obtido is not None:
+                contagem["nao_reais_com_id"] += 1
+            if (linha["classificacao"] == "real" and str(obtido) != esperado
+                    or linha["classificacao"] != "real" and obtido is not None):
+                erros.append(dict(documento_id=doc, citacao_id=linha["citacao_id"],
+                                  trecho=linha["trecho"].replace("\\n", "\n"),
+                                  classe=linha["classificacao"], esperado=esperado,
+                                  **resultado))
+        totais = {k: sum(c[k] for c in resumo.values())
+                  for k in ("reais", "corretos", "sem_id", "id_errado", "nao_reais_com_id")}
+        relatorio = dict(split=args.split, por_nivel=dict(sorted(resumo.items())),
+                         total=totais, erros=erros)
+        destino = args.report or ROOT / f"runs/resolution_report_{args.split}.json"
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_text(json.dumps(relatorio, ensure_ascii=False, indent=2) + "\n",
+                           encoding="utf-8")
+        print(f"IDs corretos: {totais['corretos']}/{totais['reais']}; "
+              f"sem ID: {totais['sem_id']}; ID errado: {totais['id_errado']}; "
+              f"não reais com ID: {totais['nao_reais_com_id']}")
+        print(f"Erros detalhados: {destino}")
+        return
 
     if args.comando == "eval-extraction":
         relatorio = avaliar_extracao(args.gold, args.pred, args.split)
