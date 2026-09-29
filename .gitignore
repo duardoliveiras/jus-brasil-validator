@@ -1,2 +1,7 @@
 docs/*
 *.ipynb
+plan.md
+runs/
+__pycache__/
+*.pyc
+.venv/
