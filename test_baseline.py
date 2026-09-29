@@ -29,6 +29,20 @@ def test_casamento():
     assert casar(gold, pred) == ([(0, 0), (1, 2)], [], [1, 3])
 
 
+def test_variantes_perdidas_no_score():
+    texto = (
+        "Cabeçalho\n\n\n"
+        "Agravo em Recurso Especial do STJ,\nde 2023, Rel. Min. Assusete Magalhães. "
+        "RE. nº\xa03.647.129-RS. Temã 2.680 da repercussão geral."
+    )
+    assert [c["trecho"] for c in extrair(texto, "exemplo")] == [
+        "Agravo em Recurso Especial do STJ,\nde 2023, Rel. Min. Assusete Magalhães",
+        "RE. nº\xa03.647.129-RS",
+        "Temã 2.680 da repercussão geral",
+    ]
+
+
 if __name__ == "__main__":
     test_extracao()
     test_casamento()
+    test_variantes_perdidas_no_score()

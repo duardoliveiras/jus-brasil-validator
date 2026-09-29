@@ -27,7 +27,7 @@ CLASSE = (
     r"Recurso\s+Especial|Reclamação|Recl\.?|Rec\.?\s*Esp\.?|R\.?Esp\.?|"
     r"AgR-REspe|AgR-AI|AREspEl|AgREsp|A\.?REsp|AREsp|REspe\.?|"
     r"Ag\.?\s*Int\.?|AgInt|AgRg|R-Rp|RHC|RMS|RSE|Rcl|APL|"
-    r"RESP|RE|AR|H\.?C\.?)"
+    r"RESP|RE\.?|AR|H\.?C\.?)"
 )
 PROCESSO = re.compile(
     rf"(?<!\w){PREFIXO}{CLASSE}\s*(?:{MARCADOR}\s*)?{NUMERO}{UF}", FLAGS
@@ -36,6 +36,9 @@ TST = re.compile(
     rf"(?<!\w)(?:processo\s+{MARCADOR}\s*)?"
     rf"(?:TST\s*[-–]\s*)?(?:(?:AgARR|AIRR|ARR|RR|ED|E)\s*[-–]\s*){{1,5}}"
     rf"{NUMERO}", FLAGS
+)
+TEMA = re.compile(
+    r"(?<!\w)Tem[aã]\s*(?:n[º°.]?\s*)?\d[\d.]*\s+da\s+repercuss[aã]o\s+geral", FLAGS
 )
 SUMULA = re.compile(
     rf"(?<!\w)(?:S[uú]mula|S[uú]m\.?|5[uú]mula)\s*"
@@ -62,10 +65,10 @@ DESCRITIVAS = [
     rf"julgado\s+do\s+{TRIBUNAL}\s+prof[ec]rido\s+em\s+20\d{{2}}\s+pela\s+relatoria\s+d[ec]\s+{NOME}",
     rf"precedente\s+do\s+{TRIBUNAL}\s+de\s+20\d{{2}},\s+da\s+relatoria\s+de\s+{NOME}",
     rf"acórdão\s+do\s+{TRIBUNAL}\s+julgado\s+em\s+20\d{{2}}\s+sob\s+relatoria\s+de\s+{NOME}",
-    rf"(?:Reclamação|Rcl|APL|Recurso\s+em\s+Habeas\s+Corpus)\s+"
+    rf"(?:Reclamação|Rcl|APL|Recurso\s+em\s+Habeas\s+Corpus|Agravo\s+em\s+Recurso\s+Especial)\s+"
     rf"(?:do\s+{TRIBUNAL},?\s*)?de\s+20\d{{2}},\s+Rel\.\s*Min\.\s+{NOME}",
 ]
-PADROES = [(p, "jurisprudencia") for p in (PROCESSO, TST, SUMULA)] + [
+PADROES = [(p, "jurisprudencia") for p in (PROCESSO, TST, SUMULA, TEMA)] + [
     (LEI, "lei")
 ] + [(re.compile(r"(?<!\w)" + p, FLAGS), "jurisprudencia") for p in DESCRITIVAS]
 
@@ -217,7 +220,7 @@ def main():
                 else:
                     classe = "inventada"
                 citacoes.append({k: c[k] for k in ("inicio", "fim", "trecho", "tipo")} |
-                                {"classificacao": classe,
+                                {"classificacao": classe, "confianca": 1.0,
                                  "resolucao": {"id_canonico": id_canonico}
                                  if id_canonico is not None else None})
             (args.output / f"{arquivo.stem}.json").write_text(
