@@ -1,6 +1,6 @@
 """Checagem mínima das famílias de extração e dos offsets."""
 
-from baseline import extrair
+from baseline import casar, extrair
 
 
 def test_extracao():
@@ -22,5 +22,13 @@ def test_extracao():
     assert all(a["fim"] <= b["inicio"] for a, b in zip(citacoes, citacoes[1:]))
 
 
+def test_casamento():
+    gold = [{"inicio": 0, "fim": 10}, {"inicio": 20, "fim": 30}]
+    pred = [{"inicio": 0, "fim": 10}, {"inicio": 0, "fim": 5},
+            {"inicio": 20, "fim": 25}, {"inicio": 40, "fim": 50}]
+    assert casar(gold, pred) == ([(0, 0), (1, 2)], [], [1, 3])
+
+
 if __name__ == "__main__":
     test_extracao()
+    test_casamento()
