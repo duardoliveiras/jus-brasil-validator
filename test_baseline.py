@@ -68,8 +68,31 @@ def test_casos_extras_e_cabecalho():
     assert len(legal) == 1 and legal[0]["vago"] and legal[0]["tipo"] == "lei"
 
 
+def test_refinamento_vagas():
+    texto = "Cabeçalho\n\n\nprecedentes da Segunda / Seção sobre a cumulação dos danos."
+    citacoes = extrair(texto, "teste", vagas=True, refinadas=True)
+    assert [c["trecho"] for c in citacoes] == ["precedentes da Segunda / Seção"]
+    assert all(texto[c["inicio"]:c["fim"]] == c["trecho"] for c in citacoes)
+    assert all(c["vago"] for c in citacoes)
+    assert extrair(texto, "teste") == extrair(texto, "teste", refinadas=True)
+
+    texto = ("Cabeçalho\n\n\ndecisão recorrida violou a regra do Código Civil "
+             "sobre responsabilidade extracontratual.")
+    citacoes = extrair(texto, "teste", vagas=True, refinadas=True)
+    assert any(c["trecho"].startswith("regra do Código Civil") for c in citacoes)
+    assert not any(c["trecho"].startswith("decisão recorrida") for c in citacoes)
+    assert all(texto[c["inicio"]:c["fim"]] == c["trecho"] for c in citacoes)
+    assert all(a["fim"] <= b["inicio"] for a, b in zip(citacoes, citacoes[1:]))
+
+    texto = ("Cabeçalho\n\n\nprecedentes do Superior Tribunal de Justiça "
+             "sobre a responsabilidade civil.")
+    assert extrair(texto, "teste", vagas=True, refinadas=True) == extrair(
+        texto, "teste", vagas=True)
+
+
 if __name__ == "__main__":
     test_extracao()
     test_casamento()
     test_variantes_perdidas_no_score()
     test_casos_extras_e_cabecalho()
+    test_refinamento_vagas()

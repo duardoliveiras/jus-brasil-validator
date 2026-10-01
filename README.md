@@ -26,7 +26,7 @@ flowchart LR
     I --> J[kaggle_metric.py: avaliação local]
 ```
 
-1. **Extração:** `baseline.py` aplica regex para processos, súmulas, temas, artigos de lei e algumas referências descritivas. Elimina sobreposições e ignora o cabeçalho sintético quando encontra o separador `\n\n\n`. A opção `--vagas` acrescenta padrões para referências sem número identificador, frequentes no conjunto extra.
+1. **Extração:** `baseline.py` aplica regex para processos, súmulas, temas, artigos de lei e algumas referências descritivas. Elimina sobreposições e ignora o cabeçalho sintético quando encontra o separador `\n\n\n`. A opção `--vagas` acrescenta padrões para referências sem número identificador, frequentes no conjunto extra. Com `--vagas --refinar-vagas`, ajusta os limites dessas referências e evita que `decisão recorrida` consuma uma referência legal seguinte.
 2. **Resolução:** `resolver.py` abre o SQLite em modo somente leitura, percorre a tabela `documentos` e monta índices para números de processos, súmulas e pares `(artigo, fonte da lei)`. Normaliza pontuação, siglas e confusões comuns de OCR nos números. Uma chave só vira ligação quando aponta para um único ID.
 3. **Classificação:** ligação única → `real`; referência sem chave suficiente ou com múltiplos IDs possíveis → `incompleta`; chave completa sem registro no banco → `inventada`. Uma extração marcada como vaga é `incompleta`. Essa última regra depende da cobertura do banco: uma citação real ausente dele pode acabar classificada como `inventada`.
 4. **Saída:** `predict` grava os JSONs em `runs/predicoes/` e chama `files/json_to_submission.py`. O CSV tem as colunas `documento_id,citacoes`; cada citação usa `inicio,fim,classe,id_canonico,confianca`, e várias citações são separadas por `|`. O campo ausente é `-`. O código hoje envia `confianca=1.0` para todas as previsões: é um valor fixo, **não uma probabilidade calibrada**.
@@ -69,12 +69,28 @@ Para reproduzir a avaliação do conjunto extra, é preciso ter `dataset_extra/`
 .venv/bin/python extra_eval.py --split teste --vagas --report runs/extra_test_repro.json
 ```
 
+Para comparar com o refinamento, mantendo o mesmo resolvedor:
+
+```bash
+.venv/bin/python extra_eval.py --split desenvolvimento --vagas --refinar-vagas --report runs/extra_dev_refinado.json
+.venv/bin/python extra_eval.py --split teste --vagas --refinar-vagas --report runs/extra_test_refinado.json
+```
+
 O modo padrão de `predict` usa as regex estritas. Para testar o modo amplo em outra pasta de `.txt`, mantenha os artefatos separados:
 
 ```bash
 .venv/bin/python baseline.py predict --input caminho/para/txt --vagas \
   --output runs/predicoes_amplas --submission runs/submission_ampla.csv
 ```
+
+Para usar os spans refinados no conjunto extra:
+
+```bash
+.venv/bin/python baseline.py predict --input dataset_extra/txt --vagas --refinar-vagas \
+  --output runs/predicoes_refinadas --submission runs/submission_refinada.csv
+```
+
+`--refinar-vagas` exige `--vagas`. Sem essa opção, o modo amplo conserva os spans anteriores. Use referências vagas quando a avaliação inclui essas referências: no conjunto original, o modo amplo também encontra referências sem anotação que geram falsos positivos. O modo estrito continua sendo o padrão.
 
 `predict` lê apenas os `.txt` diretamente na pasta indicada; não percorre subpastas. A pasta de JSONs de saída deve conter somente documentos daquela execução, pois o comando rejeita JSONs antigos de outros documentos.
 
@@ -98,11 +114,15 @@ No **conjunto extra**, comparamos as regras nos *mesmos documentos de cada divis
 | --- | --- | ---: | ---: | ---: |
 | 81 de desenvolvimento | antigas | 0,7028 | 0,5944 | 0,6520 |
 | 81 de desenvolvimento | atuais amplas | 0,9685 | 0,9342 | 1,0247 |
+| 81 de desenvolvimento | amplas refinadas | 0,9819 | 0,9511 | 1,0433 |
 | 13 de teste | antigas | 0,7556 | 0,5287 | 0,5761 |
 | 13 de teste | atuais estritas | 0,8414 | 0,6263 | 0,6838 |
-| 13 de teste | atuais amplas | **0,9467** | **0,8577** | **0,9382** |
+| 13 de teste | atuais amplas | 0,9467 | 0,8577 | 0,9382 |
+| 13 de teste | amplas refinadas | **0,9586** | **0,8788** | **0,9615** |
 
 As linhas de regras antigas são resultados históricos salvos em `runs/`; o código atual executa apenas as regras atuais.
+
+O refinamento altera apenas a extração: no desenvolvimento, TP/FP/FN passaram de `477/21/10` para `487/18/0`; no teste, de `80/6/3` para `81/5/2`. O score sem confiança aumentou de `0,857671` para `0,878835` no teste, com o resolvedor original. É um ganho medido localmente; os 13 documentos de teste são poucos para garantir generalização. As referências vagas continuam `incompleta`, sem ID, e o modo estrito mantém seu resultado nos 26 documentos originais.
 
 Por exemplo, nos 13 textos de teste, o score **sem confiança** subiu de 0,5287 com as regras antigas para 0,8577 com as atuais amplas. Esse score inclui extração, classe e ligação; o F1 da tabela mede só a extração. Todos os números são de **avaliação local** em `runs/`, não do placar atual do Kaggle. A antiga reserva de 20 documentos do experimento TF-IDF já tinha sido examinada e entrou no desenvolvimento; ela não é um segundo teste independente.
 

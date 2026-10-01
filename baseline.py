@@ -109,7 +109,20 @@ VAGAS = [
 ]
 
 
-def extrair(texto, documento_id, vagas=False):
+VAGAS_REFINADAS = [
+    (re.compile(r"(?<!\w)(?:reiterados\s+)?(?:precedentes?|jurisprud[êe]ncia|"
+                r"orienta[çc][aã]o|entendimento|tese)\b[\s\S]{0,65}?"
+                r"(?:Tribunal\s+Superior\s+(?:do\s+Trabalho|Eleitoral)|"
+                r"Superior\s+Tribunal\s+(?:de\s+Justiça|Militar)|"
+                r"(?:Primeira|Segunda|Terceira)\s*(?:/\s*)?(?:Turma|Seção)"
+                r"(?:\s+do\s+(?:STJ|STF|TST|TSE|STM))?|"
+                r"desta\s*(?:/\s*)?Corte(?:\s+(?:Militar|castrense))?|"
+                r"Supremo\s+em\s+tema\s+de\s+repercussão\s+geral)", FLAGS),
+     "jurisprudencia"),
+]
+
+
+def extrair(texto, documento_id, vagas=False, refinadas=False):
     # separador triplo delimita o cabeçalho sintético; revisar se o formato final mudar.
     separador = texto.find("\n\n\n")
     inicio_corpo = separador + 3 if separador >= 0 else 0
@@ -125,10 +138,18 @@ def extrair(texto, documento_id, vagas=False):
         escolhidos.append(dict(documento_id=documento_id, inicio=inicio, fim=fim,
                                trecho=texto[inicio:fim], tipo=tipo))
     if vagas:
-        for padrao, tipo in VAGAS:
+        padroes = VAGAS[:3] + VAGAS_REFINADAS + VAGAS[3:] if refinadas else VAGAS
+        for padrao, tipo in padroes:
             for match in padrao.finditer(texto, inicio_corpo):
                 inicio, fim = match.span()
                 trecho = texto[inicio:fim]
+                if refinadas and padrao is VAGAS_REFINADAS[0][0] and re.match(
+                        r"\s+(?:relatad[oa]|sobre|que)\b", texto[fim:], FLAGS):
+                    if not re.search(r"\b(?:Corte|Seção|Turma)\b", trecho, FLAGS) or re.match(
+                            r"\s+relatad[oa]\b", texto[fim:], FLAGS):
+                        continue
+                if refinadas and re.match(r"decis[aã]o\s+recorrida\b", trecho, FLAGS):
+                    continue
                 if trecho.isupper() or VAGO_NAO_CITACAO.search(trecho):
                     continue
                 if any(inicio < c["fim"] and fim > c["inicio"] for c in escolhidos):
@@ -232,6 +253,8 @@ def main():
     cmd.add_argument("--output", type=Path, default=ROOT / "runs/predicoes")
     cmd.add_argument("--submission", type=Path, default=ROOT / "runs/submission.csv")
     cmd.add_argument("--vagas", action="store_true", help="extrai também referências sem número")
+    cmd.add_argument("--refinar-vagas", action="store_true",
+                     help="ajusta apenas os spans de referências vagas")
     cmd = sub.add_parser("score", help="calcula a métrica oficial no gabarito local")
     cmd.add_argument("--gold", type=Path, default=ROOT / "files/goldenset_offsets.csv")
     cmd.add_argument("--submission", type=Path, default=ROOT / "runs/submission.csv")
@@ -243,6 +266,8 @@ def main():
     if args.comando == "predict":
         from resolver import Resolvedor
 
+        if args.refinar_vagas and not args.vagas:
+            parser.error("--refinar-vagas exige --vagas")
         arquivos = sorted(args.input.glob("*.txt"))
         if not arquivos:
             parser.error(f"nenhum .txt encontrado em {args.input}")
@@ -257,7 +282,8 @@ def main():
             with arquivo.open(encoding="utf-8", newline="") as f:
                 texto = f.read()
             citacoes = []
-            for c in extrair(texto, arquivo.stem, vagas=args.vagas):
+            for c in extrair(texto, arquivo.stem, vagas=args.vagas,
+                             refinadas=args.refinar_vagas):
                 if c.get("vago"):
                     id_canonico, classe = None, "incompleta"
                 else:

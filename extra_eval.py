@@ -15,7 +15,7 @@ from tfidf_experiment import carregar_extra
 ROOT = Path(__file__).resolve().parent
 
 
-def avaliar(dados, documentos, vagas=False):
+def avaliar(dados, documentos, vagas=False, refinadas=False):
     resolvedor = Resolvedor(ROOT / "files/desafio1_bracis.db")
     solucao, sem_conf, com_conf = [], [], []
     totais = Counter()
@@ -23,7 +23,7 @@ def avaliar(dados, documentos, vagas=False):
     for doc in sorted(documentos):
         item = dados[doc]
         texto, gold = item["texto"], item["gold"]
-        pred = extrair(texto, doc, vagas=vagas)
+        pred = extrair(texto, doc, vagas=vagas, refinadas=refinadas)
         pares, sem_gold, sem_pred = casar(gold, pred)
         totais.update(tp=len(pares), fp=len(sem_pred), fn=len(sem_gold))
         for i in sem_gold:
@@ -77,14 +77,20 @@ def main():
                         default="desenvolvimento")
     parser.add_argument("--report", type=Path)
     parser.add_argument("--vagas", action="store_true", help="inclui referências sem número")
+    parser.add_argument("--refinar-vagas", action="store_true",
+                        help="ajusta apenas os spans de referências vagas")
     args = parser.parse_args()
+    if args.refinar_vagas and not args.vagas:
+        parser.error("--refinar-vagas exige --vagas")
     dados, auditoria = carregar_extra(ROOT / "dataset_extra")
     divisao = json.loads((ROOT / "extra_split.json").read_text(encoding="utf-8"))
     desenvolvimento, teste = map(set, (divisao["desenvolvimento"], divisao["teste"]))
     if desenvolvimento & teste or desenvolvimento | teste != dados.keys():
         parser.error("extra_split.json não corresponde aos documentos válidos")
-    relatorio = dict(split=args.split, vagas=args.vagas, auditoria=auditoria,
-                     **avaliar(dados, divisao[args.split], vagas=args.vagas))
+    relatorio = dict(split=args.split, vagas=args.vagas,
+                     refinadas=args.refinar_vagas, auditoria=auditoria,
+                     **avaliar(dados, divisao[args.split], vagas=args.vagas,
+                               refinadas=args.refinar_vagas))
     destino = args.report or ROOT / f"runs/extra_{args.split}.json"
     destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_text(json.dumps(relatorio, ensure_ascii=False, indent=2) + "\n",
