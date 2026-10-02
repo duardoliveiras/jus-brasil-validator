@@ -1,10 +1,12 @@
 """Checagem mínima da resolução sem usar rótulos do gabarito."""
 
+from pathlib import Path
+
 from resolver import Resolvedor, numero
 
 
 def test_resolucao():
-    resolver = Resolvedor()
+    resolver = Resolvedor(Path(__file__).resolve().parent / "files/desafio1_bracis.db")
     assert numero("1.45g.779") == "1459779"
     assert numero("170076O") == "1700760"
     assert numero("68.244 S") == "68244"
@@ -29,3 +31,4 @@ def test_resolucao():
 
 if __name__ == "__main__":
     test_resolucao()
+    print("Resolução: OK")

@@ -6,7 +6,7 @@ import unicodedata
 from collections import defaultdict
 from pathlib import Path
 
-from baseline import NUMERO, PROCESSO, ROOT
+from baseline import NUMERO, PROCESSO
 
 
 OCR = str.maketrans({"O": "0", "o": "0", "l": "1", "I": "1",
@@ -101,14 +101,14 @@ def numeros_principais(texto, tribunal):
 
 
 class Resolvedor:
-    def __init__(self, banco=ROOT / "files/desafio1_bracis.db"):
+    def __init__(self, banco):
         self.acordaos = defaultdict(list)
         self.sumulas = defaultdict(list)
         self.dispositivos = defaultdict(list)
-        con = sqlite3.connect(f"file:{Path(banco).resolve()}?mode=ro", uri=True)
+        con = sqlite3.connect(Path(banco).resolve().as_uri() + "?mode=ro", uri=True)
         try:
             for id_canonico, tribunal, natureza, texto in con.execute(
-                "SELECT id, tribunal, natureza, texto FROM documentos"
+                "SELECT id, tribunal, natureza, texto FROM documentos ORDER BY id"
             ):
                 if natureza == "acordao":
                     registro = (id_canonico, tribunal, sem_acentos(texto[:350]))

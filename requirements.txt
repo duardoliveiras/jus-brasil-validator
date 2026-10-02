@@ -1,3 +1,5 @@
-pandas
-openpyxl
-scikit-learn
+# Apenas para a avaliação local; a solução usa a biblioteca padrão.
+numpy==2.4.6
+pandas==3.0.6
+python-dateutil==2.9.0.post0
+six==1.17.0
